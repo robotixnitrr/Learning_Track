@@ -4,13 +4,18 @@ const fs = require('fs');
 const path = require('path');
 const filePath = path.join(__dirname, 'products.json');
 const enteriesPath = path.join(__dirname, 'enteries.json');
-
+const { z } = require('zod');
 
 const express = require('express');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
 const API_KEY = process.env.API_KEY;
+
+let numberOfRequestPerUserId = {};
+setInterval(() => {
+    numberOfRequestPerUserId = {};
+}, 1000);
 
 const getProducts = () => {
     const data = fs.readFileSync(filePath);
@@ -55,19 +60,64 @@ const userAuthentication = (req, res,next) => {
     next();
 }
 
-// 1. Parse JSON body
-app.use(express.json());
+//ZOD input validation
+const productSchema = z.object({
+    name: z.string(),
+    category: z.string(),
+    // category: z.nullable(z.string()),
+    // category: z.optional(z.string()),
+    price: z.number()
+})
 
-//for middleware task
+//Rate Limitting using Midleware
+const rateLimiter = (req, res, next) => {
+    const userId = req.headers["userId"];
+    if(!userId){
+        return res.status(404).json({
+            success: false,
+            message: "No User Id Found"
+        })
+    }
+
+    if(numberOfRequestPerUserId[userId]){
+        numberOfRequestPerUserId[userId]++;
+        if(numberOfRequestPerUserId[userId] > 5){
+            return res.status(404).json({
+                success: false,
+                message: "Request Limit Exhausted"
+            })
+        }
+    } else {
+        numberOfRequestPerUserId[userId] = 1;
+    }
+
+    next();
+}
+app.use(rateLimiter);
+
+//for Request Enteries
 app.use(userEnteries);
 app.get('/api/enteries', (req, res) => {
     const enteries = getEnteries();
-    
+
     res.json({
         success: true,
         data: enteries
     });
 })
+
+//Error Handling Middleware
+app.use(function(err, req, res, next) {
+    const statusCode = err.status || 500; 
+
+    return res.status(statusCode).send({
+        success: false,
+        message: err.message || "Internal Server Error"
+    })
+})
+
+// 1. Parse JSON body
+app.use(express.json());
 
 // 2. GET /api/products
 app.get('/api/products', (req, res) => {
@@ -109,29 +159,28 @@ app.get('/api/products/:id', (req, res) => {
 
 // 4. POST /api/products
 app.post('/api/products',userAuthentication ,(req, res) => {
-    const { name, category, price } = req.body;
-    if(!name || !category || !price ){
-        res.status(400).json({
-            success: false,
-            message: "Please provide name, category, and price."
+    try {
+        productSchema.parse(req.body);
+        const { name, category, price } = req.body;
+    
+        const products = getProducts();
+        const newProduct = {
+            id: products.length + 1,
+            name,
+            category,
+            price
+        };
+    
+        products.push(newProduct);
+        fs.writeFileSync(filePath, JSON.stringify(products, null, 2));
+        
+        res.status(201).json({
+            success: true,
+            data: newProduct
         })
+    } catch(error) {
+        return res.status(400).json({ error: 'Invalid input.', details: error.errors });
     }
-    
-    const products = getProducts();
-    const newProduct = {
-        id: products.length + 1,
-        name,
-        category,
-        price
-    };
-
-    products.push(newProduct);
-    fs.writeFileSync(filePath, JSON.stringify(products, null, 2));
-    
-    res.status(201).json({
-        success: true,
-        data: products
-    })
 })
 
 // 5. DELETE /api/products/:id
@@ -162,9 +211,6 @@ app.delete('/api/products/:id',userAuthentication, (req, res) => {
 // 6. PUT /api/products/:id
 app.put('/api/products/:id',userAuthentication, (req, res) => {
     const { id } = req.params;
-
-    const updatedProduct = req.body;
-
     const products = getProducts();
     const productIndex = products.findIndex((product) => product.id === parseInt(id));
 
@@ -175,15 +221,21 @@ app.put('/api/products/:id',userAuthentication, (req, res) => {
         });
     }
 
+    const updatedProduct = req.body;
 
-    products[productIndex] = { id: parseInt(id), ...updatedProduct };
-    fs.writeFileSync(filePath, JSON.stringify(products, null, 2));
+    try {
+        productSchema.parse(updatedProduct);
+        products[productIndex] = { id: parseInt(id), ...updatedProduct };
+        fs.writeFileSync(filePath, JSON.stringify(products, null, 2));
 
-    res.json({
-        success: true,
-        message: "Product updated successfully",
-        data: products
-    });
+        res.json({
+            success: true,
+            message: "Product updated successfully",
+            data: products[productIndex]
+        });
+    } catch(error) {
+        res.status(400).json({ error: 'Invalid input.', details: error.errors });
+    }
 })
 
 // 7. PATCH /api/products/:id
@@ -191,7 +243,6 @@ app.patch('/api/products/:id',userAuthentication, (req, res) => {
     const { id } = req.params;
     const updates = req.body;
 
-    // Find the product index
     const products = getProducts();
     const productIndex = products.findIndex((product) => product.id === parseInt(id));
 
@@ -201,16 +252,21 @@ app.patch('/api/products/:id',userAuthentication, (req, res) => {
             message: "Product not found",
         });
     }
+    // Find the product index
+    try {
+        // Update the product at the found index
+        productSchema.partial().parse(updates);
+        products[productIndex] = { ...products[productIndex], ...updates };
+        fs.writeFileSync(filePath, JSON.stringify(products, null, 2));
 
-    // Update the product at the found index
-    products[productIndex] = { ...products[productIndex], ...updates };
-    fs.writeFileSync(filePath, JSON.stringify(products, null, 2));
-
-    res.json({
-        success: true,
-        message: "Product updated successfully",
-        data: products,
-    });
+        res.json({
+            success: true,
+            message: "Product updated successfully",
+            data: products[productIndex]
+        });
+    } catch (error) {
+        return res.status(400).json({ error: 'Invalid input.', details: error.errors });
+    }
 });
 
 // 8. Listen on port from .env

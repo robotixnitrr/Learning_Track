@@ -10,29 +10,5 @@
     "name": "Bottle",
     "category": "accesories",
     "price": 400
-  },
-  {
-    "id": 3,
-    "name": "Shirt",
-    "category": "wearable",
-    "price": 1000
-  },
-  {
-    "id": 4,
-    "name": "Mobile",
-    "category": "electronics",
-    "price": 12000
-  },
-  {
-    "id": 6,
-    "name": "Speaker",
-    "category": "electronics",
-    "price": 65000
-  },
-  {
-    "id": 7,
-    "name": "Laptop",
-    "category": "electronics",
-    "price": 65000
   }
 ]

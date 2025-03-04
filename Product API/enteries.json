@@ -10,11 +10,5 @@
     "method": "GET",
     "url": "/api/products/7",
     "date": "2025-03-01T05:11:37.989Z"
-  },
-  {
-    "id": 3,
-    "method": "PATCH",
-    "url": "/api/products/6",
-    "date": "2025-03-01T05:14:13.210Z"
   }
 ]
